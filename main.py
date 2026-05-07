@@ -7,6 +7,9 @@ import security
 import json
 from jose import jwt, JWTError
 from app.dependencies import get_optional_user
+from google.oauth2 import id_token
+from google.auth.transport import requests as google_requests
+import os
 
 # Load env vars before importing routers
 load_dotenv()
@@ -180,6 +183,78 @@ def update_profile(subs: SubscriptionsUpdate, user_id: str | None = Depends(get_
     except Exception as e:
         conn.rollback()
         raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        cur.close()
+        conn.close()
+
+GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID")
+class GoogleAuthRequest(BaseModel):
+    id_token: str
+
+
+@app.post("/api/auth/google")
+async def google_auth(payload: GoogleAuthRequest):
+    # 1. Verify the Google Token
+    try:
+        idinfo = id_token.verify_oauth2_token(
+            payload.id_token, 
+            google_requests.Request(), 
+            GOOGLE_CLIENT_ID,
+            clock_skew_in_seconds=10
+        )
+        email = idinfo.get('email')
+        if not email:
+            raise HTTPException(status_code=400, detail="Email not provided by Google")
+            
+    except ValueError as e:
+        print(f"GOOGLE TOKEN ERROR: {str(e)}") 
+        raise HTTPException(status_code=401, detail=f"Invalid Google token: {str(e)}")
+
+    # 2. Database Operations using Cursor
+    conn = get_db_connection()
+    try:
+        cur = conn.cursor()
+
+        # Check if user exists
+        cur.execute("SELECT id, email FROM users WHERE email = %s", (email,))
+        user_record = cur.fetchone()
+
+        if not user_record:
+            # NEW USER: Insert into the users table
+            cur.execute(
+                """
+                INSERT INTO users (email, password_hash) 
+                VALUES (%s, %s) 
+                RETURNING id, email;
+                """,
+                (email, "GOOGLE_AUTH")
+            )
+            user_record = cur.fetchone()
+        
+        conn.commit()
+
+        # Extract data safely (handles both dict and tuple returns)
+        user_email = user_record['email'] if isinstance(user_record, dict) else user_record[1]
+        user_id = user_record['id'] if isinstance(user_record, dict) else user_record[0]
+
+        # 3. Generate JWT (CRITICAL FIX: Use str(user_id) to match your standard login!)
+        access_token = security.create_access_token(
+            data={"sub": str(user_id)}
+        )
+
+        return {
+            "access_token": access_token,
+            "token_type": "bearer",
+            "user": {
+                "id": str(user_id),
+                "email": user_email
+            }
+        }
+
+    except Exception as e:
+        conn.rollback()
+        print(f"Database Error: {e}")
+        raise HTTPException(status_code=500, detail="Internal Server Error")
     finally:
         cur.close()
         conn.close()
