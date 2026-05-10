@@ -72,6 +72,9 @@ async def chat_endpoint(
     "Start by politely asking which streaming services they use. "
     "Do not provide any movie recommendations until you have confirmed at least one platform and their current mood."
     "CRITICAL: When you finally have enough information to make recommendations, ALWAYS suggest at least 2 movies at a time."
+    "AT THE VERY END of your response, you MUST provide exactly 3 short reply suggestions the user could click next. "
+    "Format them exactly like this on a new line: "
+    "SUGGESTIONS: [\"Suggestion 1\", \"Suggestion 2\", \"Suggestion 3\"]"
 )
     db_watched_list = req.watched_list # Fallback to whatever the frontend sent
 
@@ -103,6 +106,9 @@ async def chat_endpoint(
                         f"Once you have enough context to make a great pick, give the recommendations immediately. "
                         f"Never suggest movies from platforms not on their list."
                         f"CRITICAL: When you provide recommendations, ALWAYS suggest at least 2 movies at a time."
+                        f"AT THE VERY END of your response, you MUST provide exactly 3 short reply suggestions the user could click next. "
+                        f"Format them exactly like this on a new line: "
+                        f"SUGGESTIONS: [\"Suggestion 1\", \"Suggestion 2\", \"Suggestion 3\"]"
                     )
                 else:
                     user_context = "Logged-in User. They have no streaming platforms selected. Warn them to update their settings."
@@ -153,6 +159,17 @@ async def chat_endpoint(
     final_message = re.sub(r'http[s]?://\S+', '', final_message)
     final_message = final_message.replace('**', '')
 
+    extracted_suggestions = []
+    # Look for the exact format: SUGGESTIONS: ["a", "b", "c"]
+    suggestion_match = re.search(r'SUGGESTIONS:\s*(\[.*?\])', final_message)
+    
+    if suggestion_match:
+        try:
+            extracted_suggestions = json.loads(suggestion_match.group(1))
+            final_message = final_message.replace(suggestion_match.group(0), '')
+        except Exception as e:
+            print(f"Failed to parse suggestions: {e}")
+
     recommendations = []
     
     # Loop backwards to find tool messages for movie objects
@@ -172,7 +189,8 @@ async def chat_endpoint(
     return ChatResponse(
         id=str(int(time.time() * 1000)),
         content=final_message.strip(),
-        recommendations=recommendations
+        recommendations=recommendations,
+        suggestions=extracted_suggestions
     )
 
 

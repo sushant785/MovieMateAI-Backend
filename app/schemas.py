@@ -24,3 +24,4 @@ class ChatResponse(BaseModel):
     role: str = "ai"
     content: str
     recommendations: Optional[List[Movie]] = []
+    suggestions: Optional[List[str]] = None
