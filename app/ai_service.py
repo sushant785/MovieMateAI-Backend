@@ -15,7 +15,7 @@ class AgentState(TypedDict):
     watched_list: list[str]
 
 # 2. Setup Gemma and give it the TMDb Tool
-llm = ChatGoogleGenerativeAI(model="gemma-4-31b-it")
+llm = ChatGoogleGenerativeAI(model="gemma-4-31b-it",temperature=0.1)
 tools = [fetch_movie_poster]
 llm_with_tools = llm.bind_tools(tools)
 
